@@ -1,0 +1,411 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport"
+        content="width=device-width, user-scalable=no, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0">
+  <meta http-equiv="X-UA-Compatible" content="ie=edge">
+  <title>在线扫雷</title>
+  <style>
+    .gird-box {
+      position: relative;
+      margin: 50px auto;
+      text-align: center;
+    }
+    .button-box {
+      margin-bottom: 20px;
+    }
+    .button-box .btn {
+      padding: 3px 8px;
+      background: rgb(67, 183, 189);
+      /* border: 1px solid rgb(129, 129, 129); */
+      border: none;
+      color: white;
+      border-radius: 3px;
+      outline: none;
+      cursor:pointer;
+    }
+    #gird {
+      margin: 0 auto;
+    }
+    .blocks {
+      display: block;
+      width: 25px;
+      height: 25px;
+      border: 1px solid #000;
+      cursor: pointer;
+      font-size: 12px;
+      transition: 0.2s;
+      text-align: center;
+      line-height: 25px;
+      font-weight: bold;
+      box-shadow: 1px 1px 3px rgba(100, 100, 100, .5);
+      background-color: rgba(200,200,200,.5);
+    }
+
+    .blocks:hover {
+      background-color: #fff;
+    }
+
+    .blocks.open {
+      background-color: #fff;
+    }
+    .time {
+      color: #fe0202;
+    }
+    .flag-box {
+      margin-top: 20px;
+      display: inline-block;
+      width: 150px;
+      margin-left: 20px;
+    }
+    .time-box {
+      display: inline-block;
+      width: 150px;
+    }
+    .n1 {
+      color: #0000ff;
+    }
+    .n2 {
+      color: #028102;
+    }
+    .n3 {
+      color: #fe0202;
+    }
+    .n4 {
+      color: #7700ff;
+    }
+    .n5 {
+      color: #d000ff;
+    }
+    .n6 {
+      color: #6aff00;
+    }
+    .n7 {
+      color: #00ffd9;
+    }
+    .n8 {
+      color: #012f29;
+    }
+  </style>
+</head>
+<body ondragstart="return false" oncontextmenu="self.event.returnValue = false">
+  <div class="gird-box">
+    <div class="button-box">
+      <button class="btn" data-grade="primary">初级</button>
+      <button class="btn" data-grade="middle">中级</button>
+      <button class="btn" data-grade="senior">高级</button>
+    </div>
+    <table id="gird"></table>
+    <div class="info">
+      <div class="flag-box">标记点：<span class="flagDom" style="padding-right: 40px;">0</span></div>
+      <div class="time-box">TIME：<span class="time">0</span></div>
+      <div class="rule">
+        <p>鼠标左键点击，右键进行标注。再次右键代表分析，注意右键可标注雷和问号。</p>
+        <p>问号代表不确定。游戏左方数字代表雷数，右方数字代表时间。</p>
+      </div>
+    </div>
+  </div>
+</body>
+<script>
+  // 实现功能
+  // 1. 计时
+  // 2. 选择游戏难度
+  // 3. 标记地雷，右键可标注雷和问号。
+  // 4. 自动连锁打开：以当前点为中心的九宫格内无雷，全部打开，周围还遇到这种情况递归打开周围的点
+  // 5. 判断输赢
+  class mineClearance {
+    #firstClick = false
+    #openCount = 0
+    #isFail = 0
+    #mineText = '雷'
+    #flagText = '★'
+    #flagText2 = '?'
+
+    /**
+     * @param tableDom
+     * @param grade: 扫雷等级
+     * @param timeDom
+     * @param flagDom
+     */
+    constructor(tableDom, grade, timeDom, flagDom) {
+      this.gradeArr = {
+        primary: {
+          rows: 9,
+          cols: 9,
+          maxMineNumber: 10
+        },
+        middle: {
+          rows: 16,
+          cols: 16,
+          maxMineNumber: 40
+        },
+        senior: {
+          rows: 16,
+          cols: 30,
+          maxMineNumber: 99
+        },
+      }
+      this.timeOption = {
+        timeCount: 0,
+        timeDom,
+        timeId: null
+      }
+      this.flagOption = {
+        flagCount: 0,
+        flagDom,
+      }
+      this.tableDom = tableDom
+      this.rows = 0
+      this.cols = 0
+      this.maxMineNumber = 0
+      this.girdArr = []
+
+      this.init_gird(grade)
+    }
+
+    /**
+     * 初始化参数，绘制格子，随机生成地雷，绑定事件
+     * @param grade: 扫雷等级
+     */
+    init_gird(grade) {
+      // 初始化必要条件
+      this.#firstClick = false
+      this.#openCount = 0
+      this.#isFail = 0
+      this.timeOption.timeCount = 0
+      this.timeOption.timeId = null
+
+      this.rows = this.gradeArr[grade].rows
+      this.cols = this.gradeArr[grade].cols
+      this.maxMineNumber = this.gradeArr[grade].maxMineNumber
+      this.flagOption.flagCount = this.maxMineNumber
+      this.flagOption.flagDom.innerHTML = this.maxMineNumber
+
+      let girdHtml = ''
+      let girdArr = []
+      let self = this
+
+      // 生成空地图，并定义表格数据二维数组
+      for (let y = 0; y < this.rows; y++) {
+        girdHtml += '<tr>'
+        let subArr = []
+        for (let x = 0; x < this.cols; x++) {
+          girdHtml += `<td><span class="blocks" data-x="${x}" data-y="${y}"></span></td>`
+          subArr.push({
+            isOpen: 0,
+            count: 0,
+            isMine: 0,
+            dom: null
+          })
+        }
+        girdHtml += '</tr>'
+        girdArr.push(subArr)
+      }
+      girdHtml += '</tr>'
+
+      this.tableDom.innerHTML = girdHtml
+      this.tableDom.addEventListener('mousedown', this.moseDownHandle.bind(self))
+      this.girdArr = girdArr
+
+      // 补充表格中DOM数据，方便以后操作
+      const blocksEle = document.querySelectorAll('.blocks')
+      for (let y = 0; y < this.rows; y++) {
+        for (let x = 0; x < this.cols; x++) {
+          girdArr[y][x].dom = blocksEle[y * this.cols + x]
+        }
+      }
+      // 随机生成雷
+      this.random_mine()
+    }
+
+    /**
+     * 点击方格左键打开格子，右键做标记
+     */
+    moseDownHandle(e) {
+      const ev = e || event
+      if (ev.target.tagName === 'SPAN') {
+        const {x, y} = e.target.dataset
+        const ev = e || event
+        const curGird = this.girdArr[y][x]
+        if (curGird.isOpen === 1 || this.#isFail)
+          return
+        // 左键点击不能点击已经点击过的方格
+        if (ev.button === 0 && !curGird.isOpen) {
+          if (curGird.dom.innerHTML !== '')
+            return
+
+          // 第一次点击开始计时
+          if (!this.#firstClick) {
+            this.startTime()
+            this.#firstClick = true
+          }
+
+          if(curGird.isMine) {
+            this.fail(curGird)
+            alert('你输了')
+          } else {
+            // 如果当前九宫格附近没有雷，自动附近地图
+            if (curGird.count === 0) {
+              this.checkZero(x, y)
+            } else {
+              this.open(x, y)
+              this.setMineNum(curGird)
+            }
+          }
+        } else if (ev.button === 2) { // 右键
+          const value = ev.target.innerHTML
+          if (value === '') {
+            ev.target.innerHTML = this.#flagText
+            if (this.flagOption.flagCount > 0)
+              this.flagOption.flagDom.innerHTML = --this.flagOption.flagCount;
+          } else if (value === this.#flagText) {
+            ev.target.innerHTML = this.#flagText2
+            if (this.flagOption.flagCount < this.maxMineNumber)
+              this.flagOption.flagDom.innerHTML = ++this.flagOption.flagCount;
+          } else if (value === this.#flagText2) {
+            ev.target.innerHTML = ''
+          }
+        }
+      }
+    }
+
+    /**
+     * 在图中随机生成地雷并为地雷周围格子计算地雷个数
+     */
+    random_mine() {
+      let count = 0
+      // 随机出雷
+      while(count < this.maxMineNumber) {
+        let randomX = Math.floor(Math.random() * this.cols)
+        let randomY = Math.floor(Math.random() * this.rows)
+        if (this.girdArr[randomY][randomX].isMine)
+          continue
+
+        this.girdArr[randomY][randomX].isMine = 1
+        count++
+
+        // 统计以雷为中心的九宫格的雷的个数
+        for (let x = randomX - 1; x <= randomX + 1; x++) {
+          for (let y = randomY - 1; y <= randomY + 1; y++) {
+            if(x > -1 && y > -1 && x < this.cols && y < this.rows)
+              this.girdArr[y][x].count++
+          }
+        }
+      }
+    }
+
+    /**
+     * 自动连锁打开：以当前点为中心的九宫格内无雷，全部打开，周围还遇到这种情况递归打开周围的点
+     * @param centralX
+     * @param centralY
+     */
+    checkZero(centralX, centralY) {
+      centralX = centralX*1
+      centralY = centralY*1
+      this.open(centralX, centralY)
+      for (let x = centralX - 1; x <= centralX + 1; x++) {
+        for (let y = centralY - 1; y <= centralY + 1; y++) {
+          // 如果要打开的点越界或者已经打开过的则忽略
+          if(x >= 0 && y >= 0 && x < this.cols && y < this.rows && !this.girdArr[y][x].isOpen) {
+            if (this.girdArr[y][x].count === 0 && !this.girdArr[y][x].isOpen)
+              this.checkZero(x, y)
+            else
+              this.open(x, y)
+          }
+        }
+      }
+    }
+
+    /**
+     * 打开点
+     * @param x
+     * @param y
+     */
+    open(x, y) {
+      this.#openCount++
+      this.girdArr[y][x].isOpen = 1
+      this.girdArr[y][x].dom.classList.add('open')
+      // 每次打开都要判断是否成功
+      this.checkIsSucceed()
+    }
+
+    /**
+     * 填写格子周围雷的个数
+     * @param curGird
+     */
+    setMineNum(curGird) {
+      curGird.dom.classList.add('n'+curGird.count)
+      curGird.dom.innerHTML = curGird.count
+    }
+
+    /**
+     * 启动计时功能
+     */
+    startTime() {
+      const timeOption = this.timeOption
+      timeOption.timeId = setInterval(() => {
+        timeOption.timeCount++
+        timeOption.timeDom.innerHTML = timeOption.timeCount
+      }, 1000)
+    }
+
+    /**
+     * 暂停计时
+     */
+    stopTime() {
+      this.tableDom.removeEventListener('mousedown', this.moseDownHandle)
+      clearTimeout(this.timeOption.timeId)
+    }
+
+    /**
+     * 判断是否胜利
+     */
+    checkIsSucceed() {
+      if (!this.#isFail && (this.#openCount + this.maxMineNumber) === this.rows*this.cols) {
+        alert('你赢了')
+        this.stopTime()
+      }
+    }
+
+    /**
+     * 判断是否失败
+     * @param curGird
+     */
+    fail(curGird) {
+      this.#isFail = 1
+      let count = 0
+      curGird.dom.innerHTML = this.#mineText
+      this.stopTime()
+      for (let y = 0; y < this.rows; y++) {
+        for (let x = 0; x < this.cols; x++) {
+          const curGird = this.girdArr[y][x]
+          if (curGird.isOpen) continue
+          if (curGird.isMine) {
+            count++
+              setTimeout(() => {
+                  curGird.dom.innerHTML = this.#mineText
+                this.open(x, y)
+              }, 50 * count)
+          }
+        }
+      }
+    }
+  }
+
+  const gird = document.getElementById('gird')
+  const btnBox = document.querySelector('.button-box')
+  const timeEle = document.querySelector('.time')
+  const flagDom = document.querySelector('.flagDom')
+  const myMineGame = new mineClearance(gird, 'primary', timeEle, flagDom)
+
+  btnBox.addEventListener('click', function (e) {
+    const ev = e || event
+    const target = ev.target
+    if (target.tagName === 'BUTTON') {
+      myMineGame.init_gird(target.dataset.grade)
+    }
+  })
+
+</script>
+</html>
